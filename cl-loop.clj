@@ -35,6 +35,38 @@
 (defn process-push [form]
   ((push-fn form) form))
 
+
+
+
+(def assign  { :name "set"     , :args 3, :bind (fn [[_ var val]] `(~var ~val))})
+(def if      { :name "if"      , :args 4, :push if-push})
+(def collect { :name "collect" , :args 2, :push collect-push})
+(def conc    { :name "concat"  , :args 2, :push concat-push})
+(def seq-iteration
+     {:name  "for"
+      :args  3
+      :vars  (fn [x] (gensym "seq-iter__"))
+      :bind  gen-seq-iter-bind
+      :test  gen-seq-iter-test
+      :init  gen-seq-iter-init
+      :recur gen-seq-iter-recur})
+
+(defonce *handlers* (atom {}))
+
+(defn register [& handlers]
+  (swap! *handlers*
+         (fn [val]
+           (reduce (fn [x y] (assoc x (:name y) y))
+                   val
+                   handlers))))
+
+(register assign if collect conc seq-iteration)
+
+
+
+
+
+
 (defn num-args-for-form [name]
   (:args (@*handlers* name)))
 
@@ -103,31 +135,6 @@
                [collect mults-of-10]
                [collect letters]))))
 
-
-
-(def assign  { :name "set"     , :args 3, :bind (fn [[_ var val]] `(~var ~val))})
-(def if      { :name "if"      , :args 4, :push if-push})
-(def collect { :name "collect" , :args 2, :push collect-push})
-(def conc    { :name "concat"  , :args 2, :push concat-push})
-(def seq-iteration
-     {:name  "for"
-      :args  3
-      :vars  (fn [x] (gensym "seq-iter__"))
-      :bind  gen-seq-iter-bind
-      :test  gen-seq-iter-test
-      :init  gen-seq-iter-init
-      :recur gen-seq-iter-recur})
-
-(defonce *handlers* (atom {}))
-
-(defn register [& handlers]
-  (swap! *handlers*
-         (fn [val]
-           (reduce (fn [x y] (assoc x (:name y) y))
-                   val
-                   handlers))))
-
-(register assign if collect conc seq-iteration)
 
 (comment "
 
