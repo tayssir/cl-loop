@@ -30,14 +30,14 @@ Simple examples:
 Wilder examples:
 
 (cl-loop for letters [:a :b :c :d :e :f]
-   for whole-nums (iterate inc 1)
-   set mults-of-10 (* 10 whole-nums)
-   (if (odd? whole-nums)
-     (if (odd? whole-nums)
-       [collect letters]
-       [collect mults-of-10])
-     (if true
-       (if (even? whole-nums)
-         [collect mults-of-10]
-         [collect letters]))))
+         for whole-nums (iterate inc 1)
+         set mults-of-10 (* 10 whole-nums)
+         (if (odd? whole-nums)
+           (if (odd? whole-nums)
+             [collect letters]
+             [collect mults-of-10])
+           (if true
+             (if (even? whole-nums)
+               [collect mults-of-10]
+               [collect letters]))))
 => [:a 20 :c 40 :e 60]
