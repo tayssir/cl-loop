@@ -29,8 +29,8 @@ Simple examples:
 
 Wilder examples:
 
-(cl-loop for letters [:a :b :c :d :e :f]
-         for whole-nums (iterate inc 1)
+(cl-loop for letters     [:a :b :c :d :e :f]
+         for whole-nums  (iterate inc 1)
          set mults-of-10 (* 10 whole-nums)
          (if (odd? whole-nums)
            (if (odd? whole-nums)
