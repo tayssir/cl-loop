@@ -22,8 +22,9 @@ Simple examples:
 
 
 (cl-loop for [k v] {:a 1, :b 2}
-         collect k)
-=> [:a :b]
+         set v2 (inc v)
+         concat [k v2])
+=> [:a 2 :b 3]
 
 
 
