@@ -1,0 +1,43 @@
+[Excuse me while I get the hang of this Github thing.]
+
+v0.1 ALPHA. The API may change at any time.
+
+
+ *   cl-loop
+ *   Copyright (c) Tayssir John Gabbour. All rights reserved.
+ *   The use and distribution terms for this software are covered by the
+ *   Eclipse Public License 1.0 (http://opensource.org/licenses/eclipse-1.0.php)
+ *   which can be found in the file epl-v10.html at the root of this distribution.
+ *   By using this software in any fashion, you are agreeing to be bound by
+ *    the terms of this license.
+ *   You must not remove this notice, or any other, from this software.
+
+
+
+Simple examples:
+
+(cl-loop for x [1 2 3]
+         collect x)
+=> [1 2 3]
+
+
+(cl-loop for [k v] {:a 1, :b 2}
+         collect k)
+=> [:a :b]
+
+
+
+Wilder examples:
+
+(cl-loop for letters [:a :b :c :d :e :f]
+   for whole-nums (iterate inc 1)
+   set mults-of-10 (* 10 whole-nums)
+   (if (odd? whole-nums)
+     (if (odd? whole-nums)
+       [collect letters]
+       [collect mults-of-10])
+     (if true
+       (if (even? whole-nums)
+         [collect mults-of-10]
+         [collect letters]))))
+=> [:a 20 :c 40 :e 60]
