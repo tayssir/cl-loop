@@ -1,3 +1,6 @@
+(use 'clojure.contrib.pprint)
+(use 'clojure.contrib.def)
+
 (def *default-collector*)
 
 (defn seq-iter-form? [x]
@@ -44,16 +47,24 @@
   ((push-fn form) form))
 
 
+(defstruct verb :word :args :extra-args :bind :test :init :recur)
 
+(defn make-verb [& args]
+  (with-meta (apply struct-map verb args)
+             {:type ::verb}))
 
-(def assign  { :name "set"     , :args 3, :bind (fn [[_ var val]] `(~var ~val))})
-(def if      { :name "if"      , :args 4, :push if-push})
-(def collect { :name "collect" , :args 2, :push collect-push})
-(def conc    { :name "concat"  , :args 2, :push concat-push})
+(defmethod print-method ::verb [obj writer]
+  (cl-format writer "#<verb ~a>" (:word obj)))
+
+(def assign  (make-verb :word "set"     , :args 3, :bind assign-bind))
+(def if      (make-verb :word "if"      , :args 4, :push if-push))
+(def collect (make-verb :word "collect" , :args 2, :push collect-push))
+(def conc    (make-verb :word "concat"  , :args 2, :push concat-push))
 (def seq-iteration
-     {:name  "for"
+     (make-verb
+      :word  "for"
       :args  3
-      :vars  (fn [x] (gensym "seq-iter__"))
+      :extra-args  (fn [x] (list (gensym "seq-iter__")))
       :bind  gen-seq-iter-bind
       :test  gen-seq-iter-test
       :init  gen-seq-iter-init
@@ -64,7 +75,7 @@
 (defn register [& handlers]
   (swap! *handlers*
          (fn [val]
-           (reduce (fn [x y] (assoc x (:name y) y))
+           (reduce (fn [x y] (assoc x (:word y) y))
                    val
                    handlers))))
 
@@ -83,7 +94,7 @@
     (cond (not (seq forms))
           results
           (and (symbol? (first forms))
-               (#{"for" "set" "collect" "concat"} (name (first forms))))
+               ((into #{} (keys @*handlers*)) (name (first forms))))
           (let [args (num-args-for-form (name (first forms)))]
             (recur (drop args forms) (conj results (into [] (take args forms)))))
           (coll? (first forms))
@@ -93,37 +104,66 @@
                   (str "Can't parse " (into [] forms) " within " init-forms))))))
 
 
+(defnk cl-filter [pred coll :key-fn identity]
+  (filter #(pred (key-fn %))
+          coll))
+
+(defn good-keys [handler]
+  (let [available-keys (into #{} (for [[k v] handler :when v]
+                                   k))]
+    (clojure.set/intersection
+     available-keys
+     #{:bind :test :init :recur :push})))
+
+(defn good-forms [forms handler]
+  (cl-filter #(= % (:word handler))
+             forms
+             :key-fn (comp name first)))
+
+(defn process-clauses [handler forms]
+  (let [{:keys [word extra-args bind test init recur]} handler
+        forms (good-forms forms handler)
+        extra-args (if extra-args
+                     (map extra-args forms)
+                     (repeat (list nil)))]
+    (into {} (for [good-key (good-keys handler)]
+               (let [vals (loop [good-forms forms
+                                 extra-args extra-args
+                                 results []]
+                            (if (seq good-forms)
+                              (let [form (first good-forms)
+                                    arg  (first extra-args)]
+                                (recur (rest good-forms)
+                                       (rest extra-args)
+                                       (conj results
+                                             (apply (good-key handler)
+                                                    form
+                                                    arg))))
+                              results))]
+                 [good-key vals])))))
+
+#_(reduce (fn [x y] (merge-with concat x y))
+          (for [h (vals @*handlers*)]
+            (process-clauses h
+                             '([for x [1 2 3]]
+                                 [collect x]))))
+
 (defmacro cl-loop [& forms]
   (let [normalized-forms (normalize-forms forms)
 
-        seq-iter-forms   (filter seq-iter-form? normalized-forms)
-        seq-iter-gensyms (map (fn [x] (gensym "seq-iter__")) seq-iter-forms)
-        seq-iter-inits   (map gen-seq-iter-init  seq-iter-forms seq-iter-gensyms)
-        seq-iter-tests   (map gen-seq-iter-test  seq-iter-forms seq-iter-gensyms)
-        seq-iter-binds   (map gen-seq-iter-bind  seq-iter-forms seq-iter-gensyms)
-        seq-iter-recurs  (map gen-seq-iter-recur seq-iter-forms seq-iter-gensyms)
+        stuff (reduce (fn [x y] (merge-with concat x y))
+                      (for [h (vals @*handlers*)]
+                        (process-clauses h
+                                         normalized-forms)))
 
-        set-forms        (filter (fn [x] (= "set" (name (first x))))
-                                 normalized-forms)
-        set-binds        (map (fn [[_ var val]] `(~var ~val)) set-forms)
-
-        if-forms         (filter (fn [x] (= "if" (name (first x))))
-                                 normalized-forms)
-        if-pushes        (map if-push if-forms)
-
-        collect-forms    (filter collect-form? normalized-forms)
-        collect-pushes   (map collect-push collect-forms)
-
-        concat-forms     (filter concat-form? normalized-forms)
-        concat-pushes    (map concat-push concat-forms)
-
-        inits            (apply concat (concat seq-iter-inits))
-        binds            (apply concat (concat seq-iter-binds set-binds))
-        pushes           (concat collect-pushes concat-pushes if-pushes)
-        recurs           (concat seq-iter-recurs)]
+        inits            (reduce concat [] (:init stuff))
+        binds            (reduce concat [] (:bind stuff))
+        tests            (:test stuff)
+        pushes           (:push stuff)
+        recurs           (:recur stuff)]
     `(binding [*default-collector* []]
        (loop [~@inits]
-         (if (and ~@seq-iter-tests)
+         (if (and ~@tests)
            (let [~@binds]
              ~@pushes
              (recur ~@recurs))
