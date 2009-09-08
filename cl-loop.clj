@@ -2,31 +2,39 @@
 
 (defn seq-iter-form? [x]
   (= "for" (name (first x))))
-(defn gen-seq-iter-init [[prefix var list-form] a-gensym]
-  `(~a-gensym (seq ~list-form)))
-(defn gen-seq-iter-test [[prefix var list-form] a-gensym]
-  `(seq ~a-gensym))
-(defn gen-seq-iter-bind [[prefix var list-form] a-gensym]
-  `(~var (first ~a-gensym)))
-(defn gen-seq-iter-recur [[prefix var list-form] a-gensym]
-  `(rest ~a-gensym))
+(defn gen-seq-iter-init [form a-gensym]
+  (let [[prefix var list-form] form]
+   `(~a-gensym (seq ~list-form))))
+(defn gen-seq-iter-test [form a-gensym]
+  (let [[prefix var list-form] form]
+    `(seq ~a-gensym)))
+(defn gen-seq-iter-bind [form a-gensym]
+  (let [[prefix var list-form] form]
+    `(~var (first ~a-gensym))))
+(defn gen-seq-iter-recur [form a-gensym]
+  (let [[prefix var list-form] form]
+    `(rest ~a-gensym)))
 
 (defn collect-form? [x]
   (= "collect" (name (first x))))
-(defn collect-push [[_ var]]
+(defn collect-push [[_ var] & rest]
   `(set! *default-collector* (conj *default-collector* ~var)))
 
 (defn concat-form? [x]
   (= "concat" (name (first x))))
-(defn concat-push [[_ var]]
+(defn concat-push [[_ var] & rest]
   `(set! *default-collector* (into [] (concat *default-collector* ~var))))
+
+(defn assign-bind [[_ var val] & rest]
+  `(~var ~val))
 
 (declare process-push)
 
-(defn if-push [[_ test form-true & form-falses]]
-  `(if ~test
-     ~(process-push form-true)
-     ~@(map process-push form-falses)))
+(defn if-push [form & rest]
+  (let [[_ test form-true & form-falses] form]
+   `(if ~test
+      ~(process-push form-true)
+      ~@(map process-push form-falses))))
 
 (defn push-fn [form]
   ({"collect" collect-push, "concat" concat-push "if" if-push}
