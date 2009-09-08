@@ -68,7 +68,9 @@
       :bind  gen-seq-iter-bind
       :test  gen-seq-iter-test
       :init  gen-seq-iter-init
-      :recur gen-seq-iter-recur})
+      :recur gen-seq-iter-recur))
+
+
 
 (defonce *handlers* (atom {}))
 
