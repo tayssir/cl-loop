@@ -3,51 +3,50 @@
 
 (def *default-collector*)
 
-(defn seq-iter-form? [x]
-  (= "for" (name (first x))))
-(defn gen-seq-iter-init [form a-gensym]
-  (let [[prefix var list-form] form]
-   `(~a-gensym (seq ~list-form))))
-(defn gen-seq-iter-test [form a-gensym]
-  (let [[prefix var list-form] form]
-    `(seq ~a-gensym)))
-(defn gen-seq-iter-bind [form a-gensym]
-  (let [[prefix var list-form] form]
-    `(~var (first ~a-gensym))))
-(defn gen-seq-iter-recur [form a-gensym]
-  (let [[prefix var list-form] form]
-    `(rest ~a-gensym)))
+(defn process-assign [form]
+  (let [[_ var val] form]
+    {:bind `(~var ~val)}))
 
-(defn collect-form? [x]
-  (= "collect" (name (first x))))
-(defn collect-push [[_ var] & rest]
-  `(set! *default-collector* (conj *default-collector* ~var)))
+(defn process-collect [form]
+  (let [[_ var] form]
+    {:push `(set! *default-collector*
+                  (conj *default-collector* ~var))}))
 
-(defn concat-form? [x]
-  (= "concat" (name (first x))))
-(defn concat-push [[_ var] & rest]
-  `(set! *default-collector* (into [] (concat *default-collector* ~var))))
+(defn process-concatenation [form]
+  (let [[_ var] form]
+    {:push `(set! *default-collector*
+                  (into [] (concat *default-collector* ~var)))}))
 
-(defn assign-bind [[_ var val] & rest]
-  `(~var ~val))
+(defn process-seq-iteration [form]
+  (let [[prefix var list-form] form
+        a-gensym (gensym "seq-iter__")]
+    {:init  `(~a-gensym (seq ~list-form))
+     :test  `(seq ~a-gensym)
+     :bind  `(~var (first ~a-gensym))
+     :recur `(rest ~a-gensym)}))
 
 (declare process-push)
 
-(defn if-push [form & rest]
-  (let [[_ test form-true & form-falses] form]
-   `(if ~test
-      ~(process-push form-true)
-      ~@(map process-push form-falses))))
+(defn process-conditional [form]
+  (throw (Exception. (cl-format nil "In cl-loop: Sorry, can't process ~%  ~S~%because conditionals are currently buggy." form)))
+  (let [[_ test form-true & form-false] form]
+    {:push `(if ~test
+              ~(process-push form-true)
+              ~@(map process-push form-false))}))
 
-(defn push-fn [form]
+#_(defn push-fn [form]
   ({"collect" collect-push, "concat" concat-push "if" if-push}
    (name (first form))))
 
-(defn process-push [form]
+#_(defn process-push [form]
   ((push-fn form) form))
 
 
-(defstruct verb :word :args :extra-args :bind :test :init :recur)
+;;
+;; Handlers
+;;
+
+(defstruct verb :word :args :process)
 
 (defn make-verb [& args]
   (with-meta (apply struct-map verb args)
@@ -56,113 +55,82 @@
 (defmethod print-method ::verb [obj writer]
   (cl-format writer "#<verb ~a>" (:word obj)))
 
-(def assign  (make-verb :word "set"     , :args 3, :bind assign-bind))
-(def if      (make-verb :word "if"      , :args 4, :push if-push))
-(def collect (make-verb :word "collect" , :args 2, :push collect-push))
-(def conc    (make-verb :word "concat"  , :args 2, :push concat-push))
-(def seq-iteration
-     (make-verb
-      :word  "for"
-      :args  3
-      :extra-args  (fn [x] (list (gensym "seq-iter__")))
-      :bind  gen-seq-iter-bind
-      :test  gen-seq-iter-test
-      :init  gen-seq-iter-init
-      :recur gen-seq-iter-recur))
+(def assign         (make-verb :word "set"     :args 3 :process process-assign))
+(def collect        (make-verb :word "collect" :args 2 :process process-collect))
+(def concatentation (make-verb :word "concat"  :args 2 :process process-concatenation))
+(def conditional    (make-verb :word "if"      :args 4 :process process-conditional))
+(def seq-iteration  (make-verb :word "for"     :args 3 :process process-seq-iteration))
 
 
-
-(defonce *handlers* (atom {}))
+(def *handler-table* (atom {}))
 
 (defn register [& handlers]
-  (swap! *handlers*
-         (fn [val]
-           (reduce (fn [x y] (assoc x (:word y) y))
-                   val
+  (swap! *handler-table*
+         (fn [handler-table]
+           (reduce (fn [accum verb]
+                     (assoc accum (:word verb) verb))
+                   handler-table
                    handlers))))
 
-(register assign if collect conc seq-iteration)
+(register assign collect concatentation conditional seq-iteration)
+
+(defmulti find-handler (fn [handler-table form]
+                         (cond (or (list?   form)
+                                   (vector? form))
+                               :sequence
+                               (symbol? form)
+                               :symbol)))
+
+(defmethod find-handler :symbol [handler-table word]
+  ;; fixme: signal error
+  (handler-table (name word)))
+
+(defmethod find-handler :sequence [handler-table vector]
+  ;; fixme: signal error
+  (handler-table (name (first vector))))
 
 
+(defn normalize-forms [init-forms handler-table]
+  ;; fixme: no unexpected # of forms
+  ;; fixme: expect clauses to begin with vector or symbol
+  (loop [forms init-forms accum []]
+    (if (seq forms)
+      (let [form (first forms)]
+        (cond (or (vector? form)
+                  (list?   form))
+              (recur (rest forms) (conj accum form))
+              (symbol? form)
+              (let [word      form
+                    handler   (find-handler handler-table word)
+                    num-args  (:args handler)
+                    next-form (take num-args forms)
+                    next-form (into [] next-form)]
+                (recur (drop num-args forms) (conj accum next-form)))
+              true (throw (Exception. (print "Unrecognizable form: " form)))))
+      accum)))
 
-
-
-
-(defn num-args-for-form [name]
-  (:args (@*handlers* name)))
-
-(defn normalize-forms [init-forms]
-  (loop [forms init-forms results []]
-    (cond (not (seq forms))
-          results
-          (and (symbol? (first forms))
-               ((into #{} (keys @*handlers*)) (name (first forms))))
-          (let [args (num-args-for-form (name (first forms)))]
-            (recur (drop args forms) (conj results (into [] (take args forms)))))
-          (coll? (first forms))
-          (recur (rest forms) (conj results (first forms)))
-          true
-          (throw (IllegalArgumentException.
-                  (str "Can't parse " (into [] forms) " within " init-forms))))))
-
-
-(defnk cl-filter [pred coll :key-fn identity]
-  (filter #(pred (key-fn %))
-          coll))
-
-(defn good-keys [handler]
-  (let [available-keys (into #{} (for [[k v] handler :when v]
-                                   k))]
-    (clojure.set/intersection
-     available-keys
-     #{:bind :test :init :recur :push})))
-
-(defn good-forms [forms handler]
-  (cl-filter #(= % (:word handler))
-             forms
-             :key-fn (comp name first)))
-
-(defn process-clauses [handler forms]
-  (let [{:keys [word extra-args bind test init recur]} handler
-        forms (good-forms forms handler)
-        extra-args (if extra-args
-                     (map extra-args forms)
-                     (repeat (list nil)))]
-    (into {} (for [good-key (good-keys handler)]
-               (let [vals (loop [good-forms forms
-                                 extra-args extra-args
-                                 results []]
-                            (if (seq good-forms)
-                              (let [form (first good-forms)
-                                    arg  (first extra-args)]
-                                (recur (rest good-forms)
-                                       (rest extra-args)
-                                       (conj results
-                                             (apply (good-key handler)
-                                                    form
-                                                    arg))))
-                              results))]
-                 [good-key vals])))))
-
-#_(reduce (fn [x y] (merge-with concat x y))
-          (for [h (vals @*handlers*)]
-            (process-clauses h
-                             '([for x [1 2 3]]
-                                 [collect x]))))
+(defn process-form [handler-table normalized-form]
+  (let [handler (find-handler handler-table normalized-form)
+        processing-fn (:process handler)]
+    (processing-fn normalized-form)))
 
 (defmacro cl-loop [& forms]
-  (let [normalized-forms (normalize-forms forms)
-
-        stuff (reduce (fn [x y] (merge-with concat x y))
-                      (for [h (vals @*handlers*)]
-                        (process-clauses h
-                                         normalized-forms)))
-
-        inits            (reduce concat [] (:init stuff))
-        binds            (reduce concat [] (:bind stuff))
-        tests            (:test stuff)
-        pushes           (:push stuff)
-        recurs           (:recur stuff)]
+  (let [handler-table     @*handler-table*
+        normalized-forms  (normalize-forms forms handler-table)
+        processed-forms   (map (partial process-form handler-table) normalized-forms)
+        merged-processing (reduce (fn [accum processed]
+                                    (merge-with conj accum processed))
+                                  {:init  []
+                                   :bind  []
+                                   :test  []
+                                   :push  []
+                                   :recur []}
+                                  processed-forms)
+        inits  (reduce concat [] (:init merged-processing))
+        binds  (reduce concat [] (:bind merged-processing))
+        tests  (:test merged-processing)
+        pushes (:push merged-processing)
+        recurs (:recur merged-processing)]
     `(binding [*default-collector* []]
        (loop [~@inits]
          (if (and ~@tests)
