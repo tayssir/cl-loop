@@ -46,7 +46,7 @@
 ;; Handlers
 ;;
 
-(defstruct verb :word :args :process)
+(defstruct verb :word :default-arg-count :process)
 
 (defn make-verb [& args]
   (with-meta (apply struct-map verb args)
@@ -55,11 +55,11 @@
 (defmethod print-method ::verb [obj writer]
   (cl-format writer "#<verb ~a>" (:word obj)))
 
-(def assign         (make-verb :word "set"     :args 3 :process process-assign))
-(def collect        (make-verb :word "collect" :args 2 :process process-collect))
-(def concatentation (make-verb :word "concat"  :args 2 :process process-concatenation))
-(def conditional    (make-verb :word "if"      :args 4 :process process-conditional))
-(def seq-iteration  (make-verb :word "for"     :args 3 :process process-seq-iteration))
+(def assign         (make-verb :word "set"     :default-arg-count 3 :process process-assign))
+(def collect        (make-verb :word "collect" :default-arg-count 2 :process process-collect))
+(def concatentation (make-verb :word "concat"  :default-arg-count 2 :process process-concatenation))
+(def conditional    (make-verb :word "if"      :default-arg-count 4 :process process-conditional))
+(def seq-iteration  (make-verb :word "for"     :default-arg-count 3 :process process-seq-iteration))
 
 
 (def *handler-table* (atom {}))
@@ -102,7 +102,7 @@
               (symbol? form)
               (let [word      form
                     handler   (find-handler handler-table word)
-                    num-args  (:args handler)
+                    num-args  (:default-arg-count handler)
                     next-form (take num-args forms)
                     next-form (into [] next-form)]
                 (recur (drop num-args forms) (conj accum next-form)))
