@@ -10,7 +10,7 @@
 (defn process-collect [form]
   (let [[_ var] form]
     {:push `(set! *default-collector*
-                  (conj *default-collector* ~var))}))
+                  (into [] (conj *default-collector* ~var)))}))
 
 (defn process-concatenation [form]
   (let [[_ var] form]
@@ -24,6 +24,11 @@
      :test  `(seq ~a-gensym)
      :bind  `(~var (first ~a-gensym))
      :recur `(rest ~a-gensym)}))
+
+(defn process-sum [form]
+  (let [[_ var] form]
+    {:push `(set! *default-collector*
+                  (+  (or *default-collector* 0) ~var))}))
 
 (declare process-push)
 
@@ -60,6 +65,7 @@
 (def concatentation (make-verb :word "concat"  :default-arg-count 2 :process process-concatenation))
 (def conditional    (make-verb :word "if"      :default-arg-count 4 :process process-conditional))
 (def seq-iteration  (make-verb :word "for"     :default-arg-count 3 :process process-seq-iteration))
+(def sum            (make-verb :word "sum"     :default-arg-count 2 :process process-sum))
 
 
 (def *handler-table* (atom {}))
@@ -72,7 +78,7 @@
                    handler-table
                    handlers))))
 
-(register assign collect concatentation conditional seq-iteration)
+(register assign collect concatentation conditional seq-iteration sum)
 
 (defmulti find-handler (fn [handler-table form]
                          (cond (or (list?   form)
@@ -131,7 +137,7 @@
         tests  (:test merged-processing)
         pushes (:push merged-processing)
         recurs (:recur merged-processing)]
-    `(binding [*default-collector* []]
+    `(binding [*default-collector* nil]
        (loop [~@inits]
          (if (and ~@tests)
            (let [~@binds]
