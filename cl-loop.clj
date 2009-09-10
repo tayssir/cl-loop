@@ -1,21 +1,19 @@
 (use 'clojure.contrib.pprint)
 (use 'clojure.contrib.def)
 
-(def *default-collector*)
-
 (defn process-assign [form]
   (let [[_ var val] form]
     {:bind `(~var ~val)}))
 
 (defn process-collect [form]
   (let [[_ var] form]
-    {:push `(set! *default-collector*
-                  (into [] (conj *default-collector* ~var)))}))
+    {:push `(swap! ~'default-collector
+                   (fn [collector#] (into [] (conj collector# ~var))))}))
 
 (defn process-concatenation [form]
   (let [[_ var] form]
-    {:push `(set! *default-collector*
-                  (into [] (concat *default-collector* ~var)))}))
+    {:push `(swap! ~'default-collector
+                   (fn [collector#] (into [] (concat collector# ~var))))}))
 
 (defn process-seq-iteration [form]
   (let [[prefix var list-form] form
@@ -27,8 +25,8 @@
 
 (defn process-sum [form]
   (let [[_ var] form]
-    {:push `(set! *default-collector*
-                  (+  (or *default-collector* 0) ~var))}))
+    {:push `(swap! ~'default-collector
+                   (fn [collector#] (+  (or collector# 0) ~var)))}))
 
 (declare process-push)
 
@@ -146,13 +144,13 @@
         tests  (:test merged-processing)
         pushes (:push merged-processing)
         recurs (:recur merged-processing)]
-    `(binding [*default-collector* nil]
+    `(let [~'default-collector (atom nil)]
        (loop [~@inits]
          (if (and ~@tests)
            (let [~@binds]
              ~@pushes
              (recur ~@recurs))
-           *default-collector*)))))
+           (deref ~'default-collector))))))
 
 
 
