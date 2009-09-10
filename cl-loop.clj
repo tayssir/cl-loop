@@ -84,35 +84,44 @@
                          (cond (or (list?   form)
                                    (vector? form))
                                :sequence
-                               (symbol? form)
+                               (or (symbol?  form)
+                                   (keyword? form))
                                :symbol)))
 
-(defmethod find-handler :symbol [handler-table word]
-  ;; fixme: signal error
-  (handler-table (name word)))
+(defmethod find-handler :default [handler-table thing]
+  (throw (Exception.
+          (cl-format nil "cl-loop: Unrecognizable form: ~S~%  Expecting a symbol, keyword, list or vector." thing))))
 
-(defmethod find-handler :sequence [handler-table vector]
-  ;; fixme: signal error
-  (handler-table (name (first vector))))
+(defmethod find-handler :symbol [handler-table word]
+  (if-let [handler (handler-table (name word))]
+    handler
+    (throw (Exception. (str "cl-loop: Unknown clause " word)))))
+
+(defmethod find-handler :sequence [handler-table sequence]
+  (if-let [handler (handler-table (name (first sequence)))]
+    handler
+    (throw (Exception. (str "cl-loop: Unknown clause: " sequence)))))
 
 
 (defn normalize-forms [init-forms handler-table]
-  ;; fixme: no unexpected # of forms
-  ;; fixme: expect clauses to begin with vector or symbol
   (loop [forms init-forms accum []]
     (if (seq forms)
       (let [form (first forms)]
         (cond (or (vector? form)
                   (list?   form))
               (recur (rest forms) (conj accum form))
-              (symbol? form)
+              (or (keyword? form)
+                  (symbol?  form))
               (let [word      form
                     handler   (find-handler handler-table word)
                     num-args  (:default-arg-count handler)
                     next-form (take num-args forms)
                     next-form (into [] next-form)]
-                (recur (drop num-args forms) (conj accum next-form)))
-              true (throw (Exception. (print "Unrecognizable form: " form)))))
+                (if (not= num-args (count next-form))
+                  (throw (Exception. (cl-format nil "cl-loop: Not enough terms to complete '~S' clause: ~S" word next-form)))
+                  (recur (drop num-args forms) (conj accum next-form))))
+              true
+              (throw (Exception. (cl-format nil "cl-loop: Unrecognizable form: ~S~%  Expecting a symbol, keyword, list or vector." form)))))
       accum)))
 
 (defn process-form [handler-table normalized-form]
